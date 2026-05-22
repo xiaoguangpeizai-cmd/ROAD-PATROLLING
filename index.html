@@ -291,6 +291,15 @@
         </div>
     </div>
 
+    <!-- Photo Viewer Modal (New) -->
+    <div id="photoViewerModal" class="fixed inset-0 bg-black/95 z-[4000] hidden flex-col items-center justify-center opacity-0 transition-opacity duration-300 backdrop-blur-sm">
+        <button onclick="closePhotoModal()" class="absolute top-safe-pt top-6 right-6 text-white text-3xl hover:text-gray-300 focus:outline-none bg-black/50 w-12 h-12 rounded-full flex items-center justify-center transition">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <img id="viewerImage" src="" class="max-w-[95%] max-h-[75vh] object-contain rounded-lg shadow-2xl border border-gray-800">
+        <div id="viewerCaption" class="text-white mt-6 text-xl font-bold tracking-widest bg-gray-900/80 px-6 py-2 rounded-full border border-gray-700"></div>
+    </div>
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
@@ -309,9 +318,10 @@
         let startMarker = null;
         let endMarker = null;
         
-        // Data Store for Export
+        // Data Store for Export & Markers
         let collectedData = []; 
         let recordCounter = 0;
+        let markersMap = {}; // 儲存地圖上的 Marker 物件，以便後續更新 Popup
 
         // Kaohsiung City Center coordinates (Lingya District focus)
         const KAOHSIUNG_CENTER = [22.6273, 120.3014];
@@ -556,15 +566,17 @@
             recordCounter++;
 
             // Save to Data Array for Export
-            collectedData.push({
+            const newRecord = {
                 id: recordCounter,
                 date: dateStr,
                 time: timeStr,
                 type: type,
                 lat: currentPos.lat.toFixed(6),
                 lng: currentPos.lng.toFixed(6),
-                hasPhoto: false // 預設無照片
-            });
+                photoBefore: null, // 改善前照片
+                photoAfter: null   // 改善後照片
+            };
+            collectedData.push(newRecord);
 
             // Show export button if hidden
             document.getElementById('btnExport').style.display = 'flex';
@@ -585,9 +597,11 @@
                 fillOpacity: 0.9
             }).addTo(map);
 
-            const popupContent = `<div class="font-bold text-gray-800 border-b pb-1 mb-1">${type}</div>
-                                  <div class="text-xs text-gray-600">時間: ${timeStr}<br>座標: ${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)}</div>`;
-            anomalyMarker.bindPopup(popupContent);
+            // 儲存 marker 以便後續更新照片
+            markersMap[recordCounter] = anomalyMarker;
+            
+            // 初始化 Popup 內容
+            updateMarkerPopup(recordCounter);
 
             // Add to Sidebar List
             addRecordToList(type, timeStr, colorContext, latLng, recordCounter);
@@ -596,6 +610,31 @@
             if(navigator.vibrate) navigator.vibrate(50);
             
             showToast(`已標記：${type}`, "success");
+        }
+
+        // 更新地圖標記的資訊視窗(Popup)，包含歷史照片
+        function updateMarkerPopup(recordId) {
+            const record = collectedData.find(r => r.id === recordId);
+            const marker = markersMap[recordId];
+            if (!record || !marker) return;
+
+            let imagesHtml = '';
+            if (record.photoBefore || record.photoAfter) {
+                imagesHtml = '<div class="flex gap-2 mt-2 pt-2 border-t border-gray-200">';
+                if (record.photoBefore) {
+                    imagesHtml += `<div class="flex-1 flex flex-col items-center cursor-pointer hover:opacity-80 transition" onclick="viewPhoto('${record.photoBefore}', '${record.type} - 改善前')"><img src="${record.photoBefore}" class="w-full h-14 object-cover rounded shadow-sm border border-gray-300"><span class="text-[10px] text-gray-500 mt-1">改善前</span></div>`;
+                }
+                if (record.photoAfter) {
+                    imagesHtml += `<div class="flex-1 flex flex-col items-center cursor-pointer hover:opacity-80 transition" onclick="viewPhoto('${record.photoAfter}', '${record.type} - 改善後')"><img src="${record.photoAfter}" class="w-full h-14 object-cover rounded shadow-sm border border-gray-300"><span class="text-[10px] text-gray-500 mt-1">改善後</span></div>`;
+                }
+                imagesHtml += '</div>';
+            }
+
+            const popupContent = `<div class="font-bold text-gray-800 border-b pb-1 mb-1">${record.type}</div>
+                                  <div class="text-xs text-gray-600">時間: ${record.time}<br>座標: ${record.lat}, ${record.lng}</div>
+                                  ${imagesHtml}`;
+            
+            marker.setPopupContent(popupContent);
         }
 
         function addRecordToList(type, time, colorContext, latLng, recordId) {
@@ -623,19 +662,34 @@
                                 <i class="fa-solid fa-location-dot text-gray-400"></i> ${latLng[0].toFixed(5)}, ${latLng[1].toFixed(5)}
                             </div>
                         </div>
-                        <div class="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+                        <div class="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-md h-fit">
                             ${time}
                         </div>
                     </div>
                     
-                    <!-- 照片上傳區塊 -->
-                    <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between" onclick="event.stopPropagation();">
-                        <button id="camera-btn-${recordId}" onclick="triggerCamera(${recordId})" class="text-xs font-medium text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg flex items-center gap-1 transition">
-                            <i class="fa-solid fa-camera"></i> 拍攝 / 上傳照片
-                        </button>
-                        <div id="photo-preview-${recordId}" class="flex-shrink-0 h-10 flex items-center">
-                            <!-- 縮圖將會顯示在這裡 -->
+                    <!-- 改善前 / 改善後 照片上傳區塊 -->
+                    <div class="mt-3 pt-3 border-t border-gray-100 flex gap-2" onclick="event.stopPropagation();">
+                        
+                        <!-- 改善前 -->
+                        <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-2 flex flex-col items-center justify-center">
+                            <span class="text-[10px] text-gray-500 font-bold mb-1.5"><i class="fa-solid fa-clock-rotate-left"></i> 改善前</span>
+                            <div id="preview-before-${recordId}" class="w-full flex justify-center">
+                                <button id="btn-before-${recordId}" onclick="triggerCamera(${recordId}, 'before')" class="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-100 hover:bg-blue-200 w-full py-1.5 rounded transition flex items-center justify-center gap-1 shadow-sm">
+                                    <i class="fa-solid fa-upload"></i> 上傳照片
+                                </button>
+                            </div>
                         </div>
+
+                        <!-- 改善後 -->
+                        <div class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-2 flex flex-col items-center justify-center">
+                            <span class="text-[10px] text-emerald-600 font-bold mb-1.5"><i class="fa-solid fa-check-double"></i> 改善後</span>
+                            <div id="preview-after-${recordId}" class="w-full flex justify-center">
+                                <button id="btn-after-${recordId}" onclick="triggerCamera(${recordId}, 'after')" class="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-100 hover:bg-emerald-200 w-full py-1.5 rounded transition flex items-center justify-center gap-1 shadow-sm">
+                                    <i class="fa-solid fa-upload"></i> 上傳照片
+                                </button>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             `;
@@ -646,9 +700,11 @@
 
         // --- Camera & Photo Functions ---
         let currentUploadRecordId = null;
+        let currentUploadType = null; // 'before' or 'after'
 
-        function triggerCamera(id) {
+        function triggerCamera(id, type) {
             currentUploadRecordId = id;
+            currentUploadType = type;
             document.getElementById('cameraInput').click(); // 觸發隱藏的檔案選擇器
         }
 
@@ -662,28 +718,56 @@
             // 更新內部資料
             const record = collectedData.find(r => r.id === currentUploadRecordId);
             if (record) {
-                record.hasPhoto = true; 
+                if (currentUploadType === 'before') {
+                    record.photoBefore = imageUrl;
+                } else {
+                    record.photoAfter = imageUrl;
+                }
             }
 
-            // 更新 UI: 顯示圖片縮圖並變更按鈕樣式
-            const previewContainer = document.getElementById(`photo-preview-${currentUploadRecordId}`);
-            const cameraBtn = document.getElementById(`camera-btn-${currentUploadRecordId}`);
+            // 更新 UI: 顯示圖片縮圖取代按鈕
+            const previewContainer = document.getElementById(`preview-${currentUploadType}-${currentUploadRecordId}`);
             
             if (previewContainer) {
-                previewContainer.innerHTML = `<img src="${imageUrl}" class="w-10 h-10 object-cover rounded shadow-sm border border-gray-200" onclick="window.open('${imageUrl}', '_blank')">`;
-            }
-            if (cameraBtn) {
-                cameraBtn.classList.replace('text-blue-500', 'text-emerald-600');
-                cameraBtn.classList.replace('bg-blue-50', 'bg-emerald-50');
-                cameraBtn.classList.replace('hover:bg-blue-100', 'hover:bg-emerald-100');
-                cameraBtn.classList.replace('hover:text-blue-700', 'hover:text-emerald-700');
-                cameraBtn.innerHTML = `<i class="fa-solid fa-check"></i> 照片已儲存`;
+                const typeText = currentUploadType === 'before' ? '改善前' : '改善後';
+                previewContainer.innerHTML = `<img src="${imageUrl}" class="w-full h-12 object-cover rounded shadow-sm border border-gray-300 cursor-pointer hover:opacity-80 transition" onclick="viewPhoto('${imageUrl}', '${record.type} - ${typeText}')" title="點擊放大">`;
             }
             
-            showToast("照片上傳成功！", "success");
+            // 同步更新地圖上的 Popup 內容，使其包含最新照片
+            updateMarkerPopup(currentUploadRecordId);
+            
+            showToast(`${currentUploadType === 'before' ? '改善前' : '改善後'}照片上傳成功！`, "success");
 
             // 清空 input 值允許重複上傳相同檔案
             event.target.value = '';
+        }
+
+        // --- Photo Viewer Modal Functions ---
+        function viewPhoto(url, caption) {
+            const modal = document.getElementById('photoViewerModal');
+            const img = document.getElementById('viewerImage');
+            const cap = document.getElementById('viewerCaption');
+            
+            img.src = url;
+            cap.innerText = caption;
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            // trigger animation
+            requestAnimationFrame(() => {
+                modal.classList.remove('opacity-0');
+            });
+        }
+
+        function closePhotoModal() {
+            const modal = document.getElementById('photoViewerModal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                document.getElementById('viewerImage').src = '';
+            }, 300);
         }
 
         // --- Export Data Function ---
@@ -693,10 +777,12 @@
                 return;
             }
 
-            // Create CSV content
-            let csvContent = "編號,日期,時間,異常類型,緯度,經度,是否附圖\n";
+            // Create CSV content (更新欄位包含改善前與改善後狀態)
+            let csvContent = "編號,日期,時間,異常類型,緯度,經度,已上傳改善前照片,已上傳改善後照片\n";
             collectedData.forEach(row => {
-                csvContent += `${row.id},${row.date},${row.time},${row.type},${row.lat},${row.lng},${row.hasPhoto ? '是' : '否'}\n`;
+                const hasBefore = row.photoBefore ? '是' : '否';
+                const hasAfter = row.photoAfter ? '是' : '否';
+                csvContent += `${row.id},${row.date},${row.time},${row.type},${row.lat},${row.lng},${hasBefore},${hasAfter}\n`;
             });
 
             // Create a Blob and trigger download
