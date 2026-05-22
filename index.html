@@ -213,19 +213,21 @@
                 <i class="fa-solid fa-bolt text-yellow-500"></i> 快速標記異常位置
             </h2>
             <div class="grid grid-cols-3 gap-2">
-                <button onclick="addMarker('道路坑洞', 'red')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 rounded-xl border border-gray-200 hover:border-red-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnPothole">
-                    <i class="fa-solid fa-circle-exclamation mb-1.5 text-xl text-red-500"></i>
-                    <span class="text-[11px] font-bold">道路坑洞</span>
+                <button onclick="addMarker('路面髒汙', 'yellow')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-yellow-50 text-gray-700 hover:text-yellow-700 rounded-xl border border-gray-200 hover:border-yellow-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnDirt">
+                    <i class="fa-solid fa-broom mb-1.5 text-xl text-yellow-500"></i>
+                    <span class="text-[11px] font-bold">路面髒汙</span>
                 </button>
-                <button onclick="addMarker('標線磨損', 'orange')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-orange-50 text-gray-700 hover:text-orange-700 rounded-xl border border-gray-200 hover:border-orange-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnLine">
-                    <i class="fa-solid fa-brush mb-1.5 text-xl text-orange-500"></i>
-                    <span class="text-[11px] font-bold">標線磨損</span>
+                <button onclick="addMarker('人行道破損', 'red')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 rounded-xl border border-gray-200 hover:border-red-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnSidewalkDamage">
+                    <i class="fa-solid fa-triangle-exclamation mb-1.5 text-xl text-red-500"></i>
+                    <span class="text-[11px] font-bold">人行道破損</span>
                 </button>
-                <button onclick="addMarker('設施損壞', 'purple')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-purple-50 text-gray-700 hover:text-purple-700 rounded-xl border border-gray-200 hover:border-purple-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnFacility">
-                    <i class="fa-solid fa-triangle-exclamation mb-1.5 text-xl text-purple-500"></i>
-                    <span class="text-[11px] font-bold">設施損壞</span>
+                <button onclick="addMarker('人行道裸露', 'orange')" class="flex flex-col items-center justify-center py-2 px-1 bg-white hover:bg-orange-50 text-gray-700 hover:text-orange-700 rounded-xl border border-gray-200 hover:border-orange-300 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed" disabled id="btnSidewalkExposed">
+                    <i class="fa-solid fa-layer-group mb-1.5 text-xl text-orange-500"></i>
+                    <span class="text-[11px] font-bold">人行道裸露</span>
                 </button>
             </div>
+            <!-- 隱藏的相機/檔案選擇輸入框 -->
+            <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoUpload(event)">
         </div>
 
         <!-- Log / Records -->
@@ -516,7 +518,7 @@
             const statusText = document.getElementById('statusText');
             
             // Reporting buttons
-            const buttons = ['btnPothole', 'btnLine', 'btnFacility'];
+            const buttons = ['btnDirt', 'btnSidewalkDamage', 'btnSidewalkExposed'];
 
             if (isTracking) {
                 btnStart.disabled = true;
@@ -560,7 +562,8 @@
                 time: timeStr,
                 type: type,
                 lat: currentPos.lat.toFixed(6),
-                lng: currentPos.lng.toFixed(6)
+                lng: currentPos.lng.toFixed(6),
+                hasPhoto: false // 預設無照片
             });
 
             // Show export button if hidden
@@ -570,6 +573,7 @@
             let markerColor = '#ef4444'; // red
             if (colorContext === 'orange') markerColor = '#f97316';
             if (colorContext === 'purple') markerColor = '#a855f7';
+            if (colorContext === 'yellow') markerColor = '#eab308';
 
             // Create a styled circle marker on map
             const anomalyMarker = L.circleMarker(latLng, {
@@ -586,7 +590,7 @@
             anomalyMarker.bindPopup(popupContent);
 
             // Add to Sidebar List
-            addRecordToList(type, timeStr, colorContext, latLng);
+            addRecordToList(type, timeStr, colorContext, latLng, recordCounter);
             
             // Haptic feedback for mobile (if supported)
             if(navigator.vibrate) navigator.vibrate(50);
@@ -594,7 +598,7 @@
             showToast(`已標記：${type}`, "success");
         }
 
-        function addRecordToList(type, time, colorContext, latLng) {
+        function addRecordToList(type, time, colorContext, latLng, recordId) {
             const listDiv = document.getElementById('recordList');
             const emptyState = document.getElementById('emptyState');
             if (emptyState) emptyState.remove();
@@ -603,29 +607,83 @@
             document.getElementById('recordCount').innerText = recordCounter;
 
             // Determine Tailwind styling
-            let textClass = "text-red-600", borderClass = "border-red-200", bgClass = "bg-red-50", icon = "fa-circle-exclamation";
-            if (colorContext === 'orange') { textClass = "text-orange-500"; borderClass = "border-orange-200"; bgClass="bg-orange-50"; icon = "fa-brush"; }
-            if (colorContext === 'purple') { textClass = "text-purple-500"; borderClass = "border-purple-200"; bgClass="bg-purple-50"; icon = "fa-triangle-exclamation"; }
+            let textClass = "text-red-500", borderClass = "border-red-200", bgClass = "bg-red-50", icon = "fa-triangle-exclamation";
+            if (colorContext === 'orange') { textClass = "text-orange-500"; borderClass = "border-orange-200"; bgClass="bg-orange-50"; icon = "fa-layer-group"; }
+            if (colorContext === 'yellow') { textClass = "text-yellow-600"; borderClass = "border-yellow-200"; bgClass="bg-yellow-50"; icon = "fa-broom"; }
 
             const recordHtml = `
-                <div class="bg-white border ${borderClass} p-3 rounded-xl shadow-sm flex items-start gap-3 cursor-pointer hover:shadow-md transition active:scale-[0.98]" onclick="map.setView([${latLng[0]}, ${latLng[1]}], 18)">
-                    <div class="${bgClass} ${textClass} w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <i class="fa-solid ${icon} text-lg"></i>
-                    </div>
-                    <div class="flex-grow">
-                        <div class="font-bold text-sm text-gray-800">${type}</div>
-                        <div class="text-[11px] text-gray-500 font-mono mt-1 flex items-center gap-1">
-                            <i class="fa-solid fa-location-dot text-gray-400"></i> ${latLng[0].toFixed(5)}, ${latLng[1].toFixed(5)}
+                <div class="bg-white border ${borderClass} p-3 rounded-xl shadow-sm cursor-pointer hover:shadow-md transition active:scale-[0.98] mb-2" onclick="map.setView([${latLng[0]}, ${latLng[1]}], 18)">
+                    <div class="flex items-start gap-3">
+                        <div class="${bgClass} ${textClass} w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <i class="fa-solid ${icon} text-lg"></i>
+                        </div>
+                        <div class="flex-grow">
+                            <div class="font-bold text-sm text-gray-800">${type}</div>
+                            <div class="text-[11px] text-gray-500 font-mono mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-location-dot text-gray-400"></i> ${latLng[0].toFixed(5)}, ${latLng[1].toFixed(5)}
+                            </div>
+                        </div>
+                        <div class="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+                            ${time}
                         </div>
                     </div>
-                    <div class="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
-                        ${time}
+                    
+                    <!-- 照片上傳區塊 -->
+                    <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between" onclick="event.stopPropagation();">
+                        <button id="camera-btn-${recordId}" onclick="triggerCamera(${recordId})" class="text-xs font-medium text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg flex items-center gap-1 transition">
+                            <i class="fa-solid fa-camera"></i> 拍攝 / 上傳照片
+                        </button>
+                        <div id="photo-preview-${recordId}" class="flex-shrink-0 h-10 flex items-center">
+                            <!-- 縮圖將會顯示在這裡 -->
+                        </div>
                     </div>
                 </div>
             `;
             
             // Insert at top
             listDiv.insertAdjacentHTML('afterbegin', recordHtml);
+        }
+
+        // --- Camera & Photo Functions ---
+        let currentUploadRecordId = null;
+
+        function triggerCamera(id) {
+            currentUploadRecordId = id;
+            document.getElementById('cameraInput').click(); // 觸發隱藏的檔案選擇器
+        }
+
+        function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // 產生暫時的圖片預覽網址
+            const imageUrl = URL.createObjectURL(file);
+
+            // 更新內部資料
+            const record = collectedData.find(r => r.id === currentUploadRecordId);
+            if (record) {
+                record.hasPhoto = true; 
+            }
+
+            // 更新 UI: 顯示圖片縮圖並變更按鈕樣式
+            const previewContainer = document.getElementById(`photo-preview-${currentUploadRecordId}`);
+            const cameraBtn = document.getElementById(`camera-btn-${currentUploadRecordId}`);
+            
+            if (previewContainer) {
+                previewContainer.innerHTML = `<img src="${imageUrl}" class="w-10 h-10 object-cover rounded shadow-sm border border-gray-200" onclick="window.open('${imageUrl}', '_blank')">`;
+            }
+            if (cameraBtn) {
+                cameraBtn.classList.replace('text-blue-500', 'text-emerald-600');
+                cameraBtn.classList.replace('bg-blue-50', 'bg-emerald-50');
+                cameraBtn.classList.replace('hover:bg-blue-100', 'hover:bg-emerald-100');
+                cameraBtn.classList.replace('hover:text-blue-700', 'hover:text-emerald-700');
+                cameraBtn.innerHTML = `<i class="fa-solid fa-check"></i> 照片已儲存`;
+            }
+            
+            showToast("照片上傳成功！", "success");
+
+            // 清空 input 值允許重複上傳相同檔案
+            event.target.value = '';
         }
 
         // --- Export Data Function ---
@@ -636,9 +694,9 @@
             }
 
             // Create CSV content
-            let csvContent = "編號,日期,時間,異常類型,緯度,經度\n";
+            let csvContent = "編號,日期,時間,異常類型,緯度,經度,是否附圖\n";
             collectedData.forEach(row => {
-                csvContent += `${row.id},${row.date},${row.time},${row.type},${row.lat},${row.lng}\n`;
+                csvContent += `${row.id},${row.date},${row.time},${row.type},${row.lat},${row.lng},${row.hasPhoto ? '是' : '否'}\n`;
             });
 
             // Create a Blob and trigger download
